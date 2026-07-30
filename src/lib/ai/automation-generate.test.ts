@@ -49,6 +49,7 @@ const RESOURCES: CopilotAutomationResources = {
       stages: [{ id: STAGE_ID, name: 'New' }],
     },
   ],
+  products: [],
   templates: [],
   interactiveReplies: [],
 }
@@ -333,7 +334,7 @@ describe('buildAutomationPreview', () => {
       steps: ['move_deal_stage: Sales / New'],
     })
     expect(JSON.stringify(preview)).not.toMatch(
-      new RegExp(`${TAG_ID}|${PIPELINE_ID}|${STAGE_ID}`),
+      new RegExp(`${TAG_ID}|${PIPELINE_ID}|${STAGE_ID}`)
     )
   })
 

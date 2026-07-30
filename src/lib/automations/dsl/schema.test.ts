@@ -3,6 +3,7 @@ import { automationIntentSchema } from './intent';
 import {
   AUTOMATION_STEP_TYPES,
   AUTOMATION_TRIGGER_TYPES,
+  createDealStepConfigSchema,
   generatedAutomationSchema,
 } from './schema';
 
@@ -104,7 +105,13 @@ describe('automationIntentSchema', () => {
           pipeline: 'Sales',
           stage: 'Won',
           title: 'New deal',
-          value: null,
+          items: [
+            {
+              product: 'CRM',
+              quantity: 1,
+              unit_price: 100,
+            },
+          ],
         },
         ...root,
       },
@@ -279,6 +286,30 @@ describe('automationIntentSchema', () => {
         ],
       }).success
     ).toBe(false);
+  });
+});
+
+describe('createDealStepConfigSchema product items', () => {
+  it('accepts normalized product items while retaining legacy value support', () => {
+    expect(
+      createDealStepConfigSchema.parse({
+        pipeline_id: 'pipeline-1',
+        stage_id: 'stage-1',
+        title: 'Product opportunity',
+        items: [{ product_id: 'product-1', quantity: 2, unit_price: 125.5 }],
+      })
+    ).toMatchObject({
+      items: [{ product_id: 'product-1', quantity: 2, unit_price: 125.5 }],
+    });
+
+    expect(
+      createDealStepConfigSchema.parse({
+        pipeline_id: 'pipeline-1',
+        stage_id: 'stage-1',
+        title: 'Legacy opportunity',
+        value: 250,
+      })
+    ).toMatchObject({ value: 250 });
   });
 });
 

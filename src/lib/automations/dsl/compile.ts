@@ -20,6 +20,11 @@ export interface CompilationPipeline extends CompilationNamedResource {
   stages: CompilationNamedResource[];
 }
 
+export interface CompilationProduct extends CompilationNamedResource {
+  defaultUnitPrice: number;
+  currency: string;
+}
+
 export interface CompilationCustomField extends CompilationNamedResource {
   type: CustomFieldType;
   options: string[];
@@ -39,6 +44,7 @@ export interface AutomationCompilationResources {
   members: CompilationNamedResource[];
   customFields: CompilationCustomField[];
   pipelines: CompilationPipeline[];
+  products: CompilationProduct[];
   templates: CompilationTemplate[];
   interactiveReplies: CompilationInteractiveReply[];
 }
@@ -342,13 +348,29 @@ function compileStep(
         stage_id: pipelineAndStage.stage.id,
       };
       if (step.step_type === 'move_deal_stage') return wrap(base);
-      return wrap(
-        compact({
-          ...base,
-          title: step.step_config.title,
-          value: step.step_config.value,
-        })
-      );
+      const items: {
+        product_id: string;
+        quantity: number;
+        unit_price: number;
+      }[] = [];
+      for (const item of step.step_config.items) {
+        const product = resolveNamedResource(
+          item.product,
+          resources.products,
+          'product'
+        );
+        if (isQuestion(product)) return product;
+        items.push({
+          product_id: product.id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+        });
+      }
+      return wrap({
+        ...base,
+        title: step.step_config.title,
+        items,
+      });
     }
     case 'wait':
       return wrap({

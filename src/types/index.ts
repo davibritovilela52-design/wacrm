@@ -324,6 +324,7 @@ export interface MessageTemplate {
 export interface Pipeline {
   id: string;
   user_id: string;
+  account_id?: string;
   name: string;
   created_at: string;
 }
@@ -339,9 +340,44 @@ export interface PipelineStage {
 
 export type DealStatus = 'open' | 'won' | 'lost';
 
+export interface Product {
+  id: string;
+  account_id: string;
+  created_by: string | null;
+  name: string;
+  code?: string | null;
+  description?: string | null;
+  default_unit_price: number;
+  currency: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DealItemInput {
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  position: number;
+}
+
+export interface DealItem extends DealItemInput {
+  id: string;
+  account_id: string;
+  deal_id: string;
+  created_at: string;
+  product?: Product;
+}
+
+export type ProductFilter =
+  | { kind: 'all' }
+  | { kind: 'unassigned' }
+  | { kind: 'product'; productId: string };
+
 export interface Deal {
   id: string;
   user_id: string;
+  account_id?: string;
   pipeline_id: string;
   stage_id: string;
   /**
@@ -362,6 +398,7 @@ export interface Deal {
   contact?: Contact;
   stage?: PipelineStage;
   assignee?: Profile;
+  items?: DealItem[];
 }
 
 export type BroadcastStatus =
@@ -530,6 +567,13 @@ export interface CreateDealStepConfig {
   stage_id: string;
   title: string;
   value?: number;
+  items?: AutomationDealItemConfig[];
+}
+
+export interface AutomationDealItemConfig {
+  product_id: string;
+  quantity: number;
+  unit_price: number;
 }
 
 export interface MoveDealStageStepConfig {

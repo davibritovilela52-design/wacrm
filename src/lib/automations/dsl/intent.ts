@@ -225,7 +225,15 @@ const intentStepSchemas = [
       pipeline: humanReferenceSchema,
       stage: humanReferenceSchema,
       title: nonEmptyString,
-      value: z.number().finite().nullable(),
+      items: z
+        .array(
+          z.strictObject({
+            product: humanReferenceSchema,
+            quantity: z.number().finite().positive(),
+            unit_price: z.number().finite().nonnegative(),
+          })
+        )
+        .min(1),
     })
   ),
   intentStep(

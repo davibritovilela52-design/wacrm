@@ -512,7 +512,15 @@
       "toastFailedMoveDeal": "Failed to move deal",
       "toastFailedCreatePipeline": "Failed to create pipeline",
       "toastPipelineCreated": "Pipeline created",
-      "toastNotLinkedToAccount": "Your profile is not linked to an account."
+      "toastNotLinkedToAccount": "Your profile is not linked to an account.",
+      "productsUnavailable": "The product filter is temporarily unavailable. Showing all deals."
+    },
+    "productFilter": {
+      "all": "All products",
+      "unassigned": "No product",
+      "search": "Search products...",
+      "inactive": "Inactive",
+      "noResults": "No products found"
     },
     "board": {
       "dropDealHere": "Drop a deal here",
@@ -521,7 +529,9 @@
     "card": {
       "noContact": "No contact",
       "won": "Won",
-      "lost": "Lost"
+      "lost": "Lost",
+      "dealTotal": "Deal total",
+      "productSubtotal": "Product subtotal"
     },
     "form": {
       "editDeal": "Edit Deal",
@@ -533,6 +543,25 @@
       "linkToConversation": "Link to Conversation",
       "value": "Value",
       "currency": "Currency",
+      "products": "Products",
+      "productsHint": "Add at least one product. The deal total is calculated from its items.",
+      "addProduct": "Add product",
+      "noProducts": "No product items yet.",
+      "product": "Product",
+      "selectProduct": "Select a product",
+      "inactiveProduct": "inactive",
+      "quantity": "Quantity",
+      "unitPrice": "Unit price",
+      "subtotal": "Subtotal",
+      "removeProduct": "Remove product",
+      "total": "Total",
+      "itemErrors": {
+        "required": "Add at least one product",
+        "product": "Select a product for every item",
+        "duplicate": "A product can only be added once",
+        "quantity": "Quantity must be greater than zero",
+        "unit-price": "Unit price must be zero or greater"
+      },
       "expectedCloseDate": "Expected Close Date",
       "stage": "Stage",
       "assignedTo": "Assigned To",
@@ -971,6 +1000,13 @@
         "valueLabel": "Value",
         "placeholderValue": "Text or {{ vars.x }} / {{ message.text }}",
         "titleLabel": "Title",
+        "productsLabel": "Products",
+        "productLabel": "Product",
+        "selectProduct": "Select a product...",
+        "quantityLabel": "Quantity",
+        "unitPriceLabel": "Unit price",
+        "removeProduct": "Remove product",
+        "addProduct": "Add product",
         "amountLabel": "Amount",
         "unitLabel": "Unit",
         "units": {
@@ -1564,7 +1600,7 @@
       "templates": "Templates",
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
-      "deals": "Deals & currency",
+      "deals": "Deals & products",
       "agent": "AI agent",
       "members": "Team members",
       "api": "API keys"
@@ -1676,8 +1712,8 @@
       "networkError": "Could not reach the server"
     },
     "deals": {
-      "title": "Deals & currency",
-      "description": "The currency used for new deals and for pipeline and dashboard totals.",
+      "title": "Deals & products",
+      "description": "Manage the product catalog and the currency used for deal totals.",
       "defaultCurrency": "Default currency",
       "defaultCurrencyDesc": "New deals default to this currency, and pipeline and dashboard totals are shown in it. Existing deals keep the currency they were saved with.",
       "currencyLabel": "Currency",
@@ -1685,7 +1721,34 @@
       "save": "Save",
       "saving": "Saving...",
       "saveFailed": "Failed to save default currency",
-      "saveSuccess": "Default currency updated"
+      "saveSuccess": "Default currency updated",
+      "products": {
+        "title": "Product catalog",
+        "description": "Products can be reused across every pipeline and added as deal items.",
+        "add": "Add product",
+        "loadFailed": "Failed to load products",
+        "empty": "No products yet",
+        "emptyHint": "Create the first product to start itemizing deals.",
+        "inactive": "Inactive",
+        "editAria": "Edit {name}",
+        "adminOnly": "Only account admins can manage the product catalog.",
+        "editTitle": "Edit product",
+        "createTitle": "New product",
+        "name": "Name",
+        "code": "Code",
+        "descriptionLabel": "Description",
+        "defaultPrice": "Default unit price",
+        "currency": "Currency",
+        "active": "Active",
+        "activeHint": "Inactive products remain visible in historical deals but cannot be added to new items.",
+        "cancel": "Cancel",
+        "save": "Save product",
+        "invalid": "Enter a name, a valid price, and a currency",
+        "notAuthenticated": "Not signed in",
+        "saveFailed": "Failed to save product",
+        "updated": "Product updated",
+        "created": "Product created"
+      }
     },
     "agent": {
       "title": "AI agent",

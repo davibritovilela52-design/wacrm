@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CustomFieldType } from '@/lib/contacts/custom-field-types'
-import { coerceCustomFieldType, parseSelectOptions } from '@/lib/contacts/custom-field-types'
+import {
+  coerceCustomFieldType,
+  parseSelectOptions,
+} from '@/lib/contacts/custom-field-types'
 
 export interface CopilotNamedResource {
   id: string
@@ -25,11 +28,17 @@ export interface CopilotInteractiveReply {
   label: string
 }
 
+export interface CopilotProduct extends CopilotNamedResource {
+  defaultUnitPrice: number
+  currency: string
+}
+
 export interface CopilotAutomationResources {
   tags: CopilotNamedResource[]
   members: CopilotNamedResource[]
   customFields: CopilotCustomField[]
   pipelines: CopilotPipeline[]
+  products: CopilotProduct[]
   templates: CopilotTemplate[]
   interactiveReplies: CopilotInteractiveReply[]
 }
@@ -55,23 +64,31 @@ type InteractivePayload = {
  */
 export async function loadCopilotAutomationResources(
   supabase: SupabaseClient,
-  accountId: string,
+  accountId: string
 ): Promise<CopilotAutomationResources> {
   const [
     tagsResult,
     membersResult,
     customFieldsResult,
     pipelinesResult,
+    productsResult,
     templatesResult,
     quickRepliesResult,
   ] = await Promise.all([
     supabase.from('tags').select('id, name').eq('account_id', accountId),
-    supabase.from('profiles').select('user_id, full_name').eq('account_id', accountId),
+    supabase
+      .from('profiles')
+      .select('user_id, full_name')
+      .eq('account_id', accountId),
     supabase
       .from('custom_fields')
       .select('id, field_name, field_type, field_options')
       .eq('account_id', accountId),
     supabase.from('pipelines').select('id, name').eq('account_id', accountId),
+    supabase
+      .from('products')
+      .select('id, name, default_unit_price, currency, is_active')
+      .eq('account_id', accountId),
     supabase
       .from('message_templates')
       .select('id, name, language')
@@ -88,12 +105,20 @@ export async function loadCopilotAutomationResources(
   assertQuery('profiles', membersResult)
   assertQuery('custom_fields', customFieldsResult)
   assertQuery('pipelines', pipelinesResult)
+  assertQuery('products', productsResult)
   assertQuery('message_templates', templatesResult)
   assertQuery('quick_replies', quickRepliesResult)
 
-  const pipelineRows = (pipelinesResult.data ?? []) as { id: string; name: string }[]
+  const pipelineRows = (pipelinesResult.data ?? []) as {
+    id: string
+    name: string
+  }[]
   const pipelineIds = pipelineRows.map((pipeline) => pipeline.id)
-  const stagesResult: QueryResult<{ id: string; name: string; pipeline_id: string }> =
+  const stagesResult: QueryResult<{
+    id: string
+    name: string
+    pipeline_id: string
+  }> =
     pipelineIds.length > 0
       ? await supabase
           .from('pipeline_stages')
@@ -112,11 +137,15 @@ export async function loadCopilotAutomationResources(
   }
 
   return {
-    tags: ((tagsResult.data ?? []) as { id: string; name: string }[]).map(({ id, name }) => ({
-      id,
-      name,
-    })),
-    members: ((membersResult.data ?? []) as { user_id: string; full_name: string }[])
+    tags: ((tagsResult.data ?? []) as { id: string; name: string }[]).map(
+      ({ id, name }) => ({
+        id,
+        name,
+      })
+    ),
+    members: (
+      (membersResult.data ?? []) as { user_id: string; full_name: string }[]
+    )
       .filter((member) => member.user_id && member.full_name?.trim())
       .map((member) => ({ id: member.user_id, name: member.full_name.trim() })),
     customFields: (
@@ -137,15 +166,35 @@ export async function loadCopilotAutomationResources(
       name: pipeline.name,
       stages: stagesByPipeline.get(pipeline.id) ?? [],
     })),
+    products: (
+      (productsResult.data ?? []) as {
+        id: string
+        name: string
+        default_unit_price: number
+        currency: string
+        is_active: boolean
+      }[]
+    )
+      .filter((product) => product.is_active)
+      .map((product) => ({
+        id: product.id,
+        name: product.name,
+        defaultUnitPrice: Number(product.default_unit_price),
+        currency: product.currency,
+      })),
     templates: (
-      (templatesResult.data ?? []) as { id: string; name: string; language: string | null }[]
+      (templatesResult.data ?? []) as {
+        id: string
+        name: string
+        language: string | null
+      }[]
     ).map((template) => ({
       id: template.id,
       name: template.name,
       language: template.language?.trim() || 'en_US',
     })),
     interactiveReplies: extractInteractiveReplies(
-      (quickRepliesResult.data ?? []) as { interactive_payload: unknown }[],
+      (quickRepliesResult.data ?? []) as { interactive_payload: unknown }[]
     ),
   }
 }
@@ -157,12 +206,13 @@ function assertQuery<T>(table: string, result: QueryResult<T>): void {
 }
 
 function extractInteractiveReplies(
-  rows: { interactive_payload: unknown }[],
+  rows: { interactive_payload: unknown }[]
 ): CopilotInteractiveReply[] {
   const replies = new Map<string, CopilotInteractiveReply>()
 
   for (const row of rows) {
-    if (!row.interactive_payload || typeof row.interactive_payload !== 'object') continue
+    if (!row.interactive_payload || typeof row.interactive_payload !== 'object')
+      continue
     const payload = row.interactive_payload as InteractivePayload
 
     if (payload.kind === 'buttons' && Array.isArray(payload.buttons)) {
@@ -184,7 +234,7 @@ function extractInteractiveReplies(
 
 function addInteractiveReply(
   replies: Map<string, CopilotInteractiveReply>,
-  candidate: unknown,
+  candidate: unknown
 ): void {
   if (!candidate || typeof candidate !== 'object') return
   const { id, title } = candidate as { id?: unknown; title?: unknown }

@@ -23,6 +23,7 @@ function config(): AiConfig {
 
 const RESOURCES: AutomationResources = {
   tags: [{ id: 'tag-vip', name: 'VIP' }],
+  products: [],
   pipelines: [{ id: 'pipe-1', name: 'Sales', stages: [{ id: 'stage-1', name: 'New' }, { id: 'stage-2', name: 'Won' }] }],
 }
 

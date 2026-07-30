@@ -9,11 +9,15 @@ const h = vi.hoisted(() => ({
     automations: [] as Record<string, unknown>[],
     steps: [] as Record<string, unknown>[],
     fromCalls: [] as string[],
-    updateCalls: [] as { table: string; filters: [string, string, unknown][] }[],
+    updateCalls: [] as {
+      table: string;
+      filters: [string, string, unknown][];
+    }[],
     upsertCalls: [] as { table: string; payload: unknown }[],
     logUpdates: [] as Record<string, unknown>[],
     dealResults: [] as Array<Record<string, unknown> | null>,
     dealFilters: [] as Array<[string, string, unknown][]>,
+    rpcCalls: [] as Array<{ name: string; args: unknown }>,
   },
   moveDealStage: vi.fn(),
 }));
@@ -48,9 +52,13 @@ vi.mock("./admin-client", () => {
       return { data: null, error: null };
     }
     if (table === "automations") {
-      const triggerType = ops.filters.find(([kind, key]) => kind === "eq" && key === "trigger_type")?.[2];
+      const triggerType = ops.filters.find(
+        ([kind, key]) => kind === "eq" && key === "trigger_type"
+      )?.[2];
       const automations = triggerType
-        ? state.automations.filter((automation) => automation.trigger_type === triggerType)
+        ? state.automations.filter(
+            (automation) => automation.trigger_type === triggerType
+          )
         : state.automations;
       return { data: automations, error: null };
     }
@@ -63,11 +71,12 @@ vi.mock("./admin-client", () => {
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
     if (table === "automation_steps") {
-      const parentStepId = ops.filters.find(([kind, key]) =>
-        (kind === "eq" || kind === "is") && key === "parent_step_id"
+      const parentStepId = ops.filters.find(
+        ([kind, key]) =>
+          (kind === "eq" || kind === "is") && key === "parent_step_id"
       )?.[2];
-      const steps = state.steps.filter((step) =>
-        (step.parent_step_id ?? null) === (parentStepId ?? null)
+      const steps = state.steps.filter(
+        (step) => (step.parent_step_id ?? null) === (parentStepId ?? null)
       );
       return { data: steps, error: null };
     }
@@ -110,7 +119,10 @@ vi.mock("./admin-client", () => {
         state.fromCalls.push(t);
         return builder(t);
       },
-      rpc: () => Promise.resolve({ error: null }),
+      rpc: (name: string, args: unknown) => {
+        state.rpcCalls.push({ name, args });
+        return Promise.resolve({ error: null });
+      },
     }),
   };
 });
@@ -141,6 +153,7 @@ beforeEach(() => {
   h.state.logUpdates = [];
   h.state.dealResults = [];
   h.state.dealFilters = [];
+  h.state.rpcCalls = [];
   h.moveDealStage.mockReset();
 });
 
@@ -236,9 +249,9 @@ describe("update_contact_field — custom fields", () => {
     });
 
     expect(h.state.upsertCalls).toHaveLength(1);
-    expect(
-      (h.state.upsertCalls[0].payload as { value: string }).value,
-    ).toBe("WhatsApp Ad");
+    expect((h.state.upsertCalls[0].payload as { value: string }).value).toBe(
+      "WhatsApp Ad"
+    );
   });
 
   it("refuses to write a custom field from another account", async () => {
@@ -312,9 +325,13 @@ describe("move_deal_stage step", () => {
       toStageId: "stage-B",
       source: "automation",
     });
-    expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
-      steps_executed: [expect.objectContaining({ detail: "moved from stage-A to stage-B" })],
-    }));
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        steps_executed: [
+          expect.objectContaining({ detail: "moved from stage-A to stage-B" }),
+        ],
+      })
+    );
   });
 
   it("no-ops with a clear detail when no deal is linked", async () => {
@@ -331,9 +348,15 @@ describe("move_deal_stage step", () => {
     });
 
     expect(h.moveDealStage).not.toHaveBeenCalled();
-    expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
-      steps_executed: [expect.objectContaining({ detail: "no open deal found for this contact/conversation" })],
-    }));
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        steps_executed: [
+          expect.objectContaining({
+            detail: "no open deal found for this contact/conversation",
+          }),
+        ],
+      })
+    );
   });
 });
 
@@ -351,13 +374,111 @@ describe("deal_stage condition", () => {
       context: { conversation_id: "conversation-1" },
     });
 
-    expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
-      steps_executed: [expect.objectContaining({ detail: "branch=yes" })],
-    }));
-    expect(h.state.dealFilters).toContainEqual(expect.arrayContaining([
-      ["eq", "id", "deal-1"],
-      ["eq", "account_id", ACCOUNT],
-    ]));
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        steps_executed: [expect.objectContaining({ detail: "branch=yes" })],
+      })
+    );
+    expect(h.state.dealFilters).toContainEqual(
+      expect.arrayContaining([
+        ["eq", "id", "deal-1"],
+        ["eq", "account_id", ACCOUNT],
+      ])
+    );
+  });
+});
+
+describe("runAutomationsForTrigger - product deal items", () => {
+  it("creates a deal with items through the service-role atomic RPC", async () => {
+    h.state.owned = { id: "contact-1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "create_deal",
+        position: 0,
+        parent_step_id: null,
+        step_config: {
+          pipeline_id: "pipeline-1",
+          stage_id: "stage-1",
+          title: "Product opportunity",
+          items: [
+            {
+              product_id: "product-1",
+              quantity: 2,
+              unit_price: 125,
+            },
+          ],
+        },
+      },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "contact-1",
+      context: { message_text: "interested" },
+    });
+
+    expect(h.state.rpcCalls).toContainEqual({
+      name: "create_automated_deal_with_items",
+      args: {
+        p_payload: expect.objectContaining({
+          account_id: ACCOUNT,
+          user_id: "u1",
+          contact_id: "contact-1",
+          items: [
+            {
+              product_id: "product-1",
+              quantity: 2,
+              unit_price: 125,
+            },
+          ],
+        }),
+      },
+    });
+  });
+
+  it("passes a null contact through for contactless triggers", async () => {
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "create_deal",
+        position: 0,
+        parent_step_id: null,
+        step_config: {
+          pipeline_id: "pipeline-1",
+          stage_id: "stage-1",
+          title: "Scheduled product opportunity",
+          items: [
+            {
+              product_id: "product-1",
+              quantity: 1,
+              unit_price: 125,
+            },
+          ],
+        },
+      },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: null,
+      context: {},
+    });
+
+    expect(h.state.rpcCalls).toContainEqual({
+      name: "create_automated_deal_with_items",
+      args: {
+        p_payload: expect.objectContaining({
+          contact_id: null,
+        }),
+      },
+    });
   });
 });
 
@@ -368,7 +489,11 @@ function webhookStep(url: string) {
     step_type: "send_webhook",
     position: 0,
     parent_step_id: null,
-    step_config: { url, headers: { "Metadata-Flavor": "Google" }, body_template: "{}" },
+    step_config: {
+      url,
+      headers: { "Metadata-Flavor": "Google" },
+      body_template: "{}",
+    },
   };
 }
 
@@ -445,25 +570,29 @@ describe("triggerMatches — interactive_reply", () => {
 
   it("matches when the tapped id is in reply_ids (exact)", () => {
     expect(
-      triggerMatches(automation(["yes", "no"]), { interactive_reply_id: "yes" }),
+      triggerMatches(automation(["yes", "no"]), { interactive_reply_id: "yes" })
     ).toBe(true);
   });
 
   it("does not match a different id", () => {
     expect(
-      triggerMatches(automation(["yes"]), { interactive_reply_id: "maybe" }),
+      triggerMatches(automation(["yes"]), { interactive_reply_id: "maybe" })
     ).toBe(false);
   });
 
   it("does not match on a substring (exact only)", () => {
     expect(
-      triggerMatches(automation(["yes"]), { interactive_reply_id: "yes_please" }),
+      triggerMatches(automation(["yes"]), {
+        interactive_reply_id: "yes_please",
+      })
     ).toBe(false);
   });
 
   it("does not match when no reply id is present or config is empty", () => {
     expect(triggerMatches(automation(["yes"]), {})).toBe(false);
-    expect(triggerMatches(automation([]), { interactive_reply_id: "yes" })).toBe(false);
+    expect(
+      triggerMatches(automation([]), { interactive_reply_id: "yes" })
+    ).toBe(false);
   });
 });
 
@@ -485,7 +614,9 @@ describe("triggerMatches — tag_added", () => {
 
   it("matches only the exact tag id", () => {
     expect(triggerMatches(automation("tag-a"), { tag_id: "tag-a" })).toBe(true);
-    expect(triggerMatches(automation("tag-a"), { tag_id: "tag-ab" })).toBe(false);
+    expect(triggerMatches(automation("tag-a"), { tag_id: "tag-ab" })).toBe(
+      false
+    );
   });
 
   it("fails closed when the config or event tag is missing", () => {
@@ -498,23 +629,27 @@ describe("triggerMatches — tag_added", () => {
 describe("tag_added — conversation policy", () => {
   it("records a clear failed step when the contact has no conversation", async () => {
     h.state.owned = { id: "c1" };
-    h.state.automations = [{
-      id: "a1",
-      account_id: ACCOUNT,
-      user_id: "u1",
-      name: "tag outreach",
-      trigger_type: "tag_added",
-      trigger_config: { tag_id: "tag-a" },
-      is_active: true,
-    }];
-    h.state.steps = [{
-      id: "s1",
-      automation_id: "a1",
-      step_type: "send_message",
-      position: 0,
-      parent_step_id: null,
-      step_config: { text: "Hello" },
-    }];
+    h.state.automations = [
+      {
+        id: "a1",
+        account_id: ACCOUNT,
+        user_id: "u1",
+        name: "tag outreach",
+        trigger_type: "tag_added",
+        trigger_config: { tag_id: "tag-a" },
+        is_active: true,
+      },
+    ];
+    h.state.steps = [
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "send_message",
+        position: 0,
+        parent_step_id: null,
+        step_config: { text: "Hello" },
+      },
+    ];
 
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
@@ -523,9 +658,12 @@ describe("tag_added — conversation policy", () => {
       context: { tag_id: "tag-a" },
     });
 
-    expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
-      status: "failed",
-      error_message: "tag_added automation cannot send: contact has no existing conversation",
-    }));
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message:
+          "tag_added automation cannot send: contact has no existing conversation",
+      })
+    );
   });
 });

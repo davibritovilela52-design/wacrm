@@ -4,9 +4,7 @@ import {
   compileAutomationIntent,
   type AutomationCompilationQuestion,
 } from '@/lib/automations/dsl/compile'
-import {
-  automationIntentSchema,
-} from '@/lib/automations/dsl/intent'
+import { automationIntentSchema } from '@/lib/automations/dsl/intent'
 import type {
   GeneratedAutomation,
   GeneratedAutomationStep,
@@ -16,7 +14,10 @@ import { generateStructured } from './generate-structured'
 import { verifyAutomationSemantics } from './automation-verify'
 import { AiError, type AiConfig, type AiUsage } from './types'
 
-export type { GeneratedAutomation, GeneratedStep } from '@/lib/automations/dsl/schema'
+export type {
+  GeneratedAutomation,
+  GeneratedStep,
+} from '@/lib/automations/dsl/schema'
 
 export interface CopilotHistoryEntry {
   role: 'user' | 'assistant'
@@ -95,7 +96,7 @@ export class AutomationGenerationError extends AiError {
 }
 
 export async function generateAutomationFromPrompt(
-  args: GenerateAutomationFromPromptArgs,
+  args: GenerateAutomationFromPromptArgs
 ): Promise<CopilotTurn> {
   const metadata = emptyMetadata()
   const modelContext = buildModelContext(args)
@@ -119,7 +120,10 @@ export async function generateAutomationFromPrompt(
       }
     }
 
-    const compiled = compileAutomationIntent(initial.data.automation, args.resources)
+    const compiled = compileAutomationIntent(
+      initial.data.automation,
+      args.resources
+    )
     if (compiled.kind === 'question') {
       metadata.issueCount = 1
       return compilationQuestion(compiled, args, metadata)
@@ -133,7 +137,7 @@ export async function generateAutomationFromPrompt(
       intent: initial.data.automation,
       modelFacingAutomation: toModelFacingAutomation(
         compiled.automation,
-        args.resources,
+        args.resources
       ),
     })
     addUsage(metadata, firstVerification.usage)
@@ -168,7 +172,7 @@ export async function generateAutomationFromPrompt(
 
     const repairedCompilation = compileAutomationIntent(
       repaired.data.automation,
-      args.resources,
+      args.resources
     )
     if (repairedCompilation.kind === 'question') {
       metadata.issueCount = 1
@@ -183,7 +187,7 @@ export async function generateAutomationFromPrompt(
       intent: repaired.data.automation,
       modelFacingAutomation: toModelFacingAutomation(
         repairedCompilation.automation,
-        args.resources,
+        args.resources
       ),
     })
     addUsage(metadata, secondVerification.usage)
@@ -237,12 +241,17 @@ function buildModelContext(args: GenerateAutomationFromPromptArgs) {
         name: pipeline.name,
         stages: pipeline.stages.map((stage) => stage.name),
       })),
+      products: args.resources.products.map((product) => ({
+        name: product.name,
+        defaultUnitPrice: product.defaultUnitPrice,
+        currency: product.currency,
+      })),
       templates: args.resources.templates.map((item) => ({
         name: item.name,
         language: item.language,
       })),
       interactiveReplies: args.resources.interactiveReplies.map(
-        (item) => item.label,
+        (item) => item.label
       ),
     },
     conversationContent: args.history,
@@ -254,7 +263,7 @@ function buildModelContext(args: GenerateAutomationFromPromptArgs) {
 
 function verifiedDraft(
   automation: GeneratedAutomation,
-  metadata: CopilotGenerationMetadata,
+  metadata: CopilotGenerationMetadata
 ): CopilotDraft {
   metadata.issueCount = 0
   return {
@@ -269,11 +278,15 @@ function verifiedDraft(
 function compilationQuestion(
   question: AutomationCompilationQuestion,
   args: GenerateAutomationFromPromptArgs,
-  metadata: CopilotGenerationMetadata,
+  metadata: CopilotGenerationMetadata
 ): CopilotQuestion {
   return {
     kind: 'question',
-    text: localizeSafeQuestion(args, question.text, question.choices.length > 0),
+    text: localizeSafeQuestion(
+      args,
+      question.text,
+      question.choices.length > 0
+    ),
     reasonCode: question.reasonCode,
     choices: question.choices,
     metadata,
@@ -282,7 +295,7 @@ function compilationQuestion(
 
 function semanticFailureQuestion(
   args: GenerateAutomationFromPromptArgs,
-  metadata: CopilotGenerationMetadata,
+  metadata: CopilotGenerationMetadata
 ): CopilotQuestion {
   return {
     kind: 'question',
@@ -296,7 +309,7 @@ function semanticFailureQuestion(
 function localizeSafeQuestion(
   args: GenerateAutomationFromPromptArgs,
   englishFallback: string,
-  hasChoices: boolean,
+  hasChoices: boolean
 ): string {
   switch (detectResponseLanguage(args)) {
     case 'pt':
@@ -312,7 +325,9 @@ function localizeSafeQuestion(
   }
 }
 
-function localizeSemanticFailure(args: GenerateAutomationFromPromptArgs): string {
+function localizeSemanticFailure(
+  args: GenerateAutomationFromPromptArgs
+): string {
   switch (detectResponseLanguage(args)) {
     case 'pt':
       return 'Ainda não consegui confirmar todos os detalhes. O que devo corrigir ou priorizar nesta automação?'
@@ -324,22 +339,23 @@ function localizeSemanticFailure(args: GenerateAutomationFromPromptArgs): string
 }
 
 function detectResponseLanguage(
-  args: GenerateAutomationFromPromptArgs,
+  args: GenerateAutomationFromPromptArgs
 ): 'en' | 'pt' | 'ko' {
   const lastUserText =
-    [...args.history].reverse().find((entry) => entry.role === 'user')?.text ?? ''
+    [...args.history].reverse().find((entry) => entry.role === 'user')?.text ??
+    ''
   if (/[\uac00-\ud7af]/u.test(lastUserText)) return 'ko'
   if (
     /[ãõáàâéêíóôúç]/iu.test(lastUserText) ||
     /\b(para|quando|cliente|mensagem|automação|adicione|remova|espere|envie|quero|qual)\b/iu.test(
-      lastUserText,
+      lastUserText
     )
   ) {
     return 'pt'
   }
   if (
     /\b(the|when|customer|message|automation|send|wait|please|which|what)\b/iu.test(
-      lastUserText,
+      lastUserText
     )
   ) {
     return 'en'
@@ -363,7 +379,7 @@ function emptyMetadata(): CopilotGenerationMetadata {
 
 function addUsage(
   metadata: CopilotGenerationMetadata,
-  usage: AiUsage | null,
+  usage: AiUsage | null
 ): void {
   if (!usage) return
   metadata.promptTokens += usage.promptTokens
@@ -376,7 +392,7 @@ function addUsage(
  */
 export function toModelFacingAutomation(
   automation: GeneratedAutomation,
-  resources: CopilotAutomationResources,
+  resources: CopilotAutomationResources
 ): unknown {
   const labels = resourceLabels(resources)
 
@@ -389,7 +405,7 @@ export function toModelFacingAutomation(
       }
       return value.replace(
         /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu,
-        '[internal reference omitted]',
+        '[internal reference omitted]'
       )
     }
     if (Array.isArray(value)) return value.map(resolve)
@@ -398,21 +414,22 @@ export function toModelFacingAutomation(
       return {
         ...value,
         step_config: sanitizeWebhookStepConfig(
-          value.step_config as Record<string, unknown>,
+          value.step_config as Record<string, unknown>
         ),
       }
     }
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, resolve(item)]),
+      Object.entries(value).map(([key, item]) => [key, resolve(item)])
     )
   }
 
   return resolve(automation)
 }
 
-function isWebhookStep(
-  value: object,
-): value is { step_type: 'send_webhook'; step_config: Record<string, unknown> } {
+function isWebhookStep(value: object): value is {
+  step_type: 'send_webhook'
+  step_config: Record<string, unknown>
+} {
   return (
     'step_type' in value &&
     value.step_type === 'send_webhook' &&
@@ -423,7 +440,7 @@ function isWebhookStep(
 }
 
 function sanitizeWebhookStepConfig(
-  stepConfig: Record<string, unknown>,
+  stepConfig: Record<string, unknown>
 ): Record<string, unknown> {
   const sanitized = { ...stepConfig }
 
@@ -432,7 +449,7 @@ function sanitizeWebhookStepConfig(
   }
   if (sanitized.headers && typeof sanitized.headers === 'object') {
     sanitized.headers = redactWebhookHeaders(
-      sanitized.headers as Record<string, unknown>,
+      sanitized.headers as Record<string, unknown>
     )
   }
   if (typeof sanitized.body_template === 'string') {
@@ -443,10 +460,10 @@ function sanitizeWebhookStepConfig(
 }
 
 function redactWebhookHeaders(
-  headers: Record<string, unknown>,
+  headers: Record<string, unknown>
 ): Record<string, string> {
   return Object.fromEntries(
-    Object.keys(headers).map((key) => [key, '[redacted]']),
+    Object.keys(headers).map((key) => [key, '[redacted]'])
   )
 }
 
@@ -467,11 +484,11 @@ function redactWebhookUrl(url: string): string {
 
 export function buildAutomationPreview(
   automation: GeneratedAutomation,
-  resources: CopilotAutomationResources,
+  resources: CopilotAutomationResources
 ): { trigger: string; steps: string[] } {
   const labels = resourceLabels(resources)
   const label = (value: unknown) =>
-    typeof value === 'string' ? labels.get(value) ?? '[unknown resource]' : ''
+    typeof value === 'string' ? (labels.get(value) ?? '[unknown resource]') : ''
   const triggerConfig = automation.trigger_config as Record<string, unknown>
 
   let trigger = automation.trigger_type
@@ -498,14 +515,14 @@ export function buildAutomationPreview(
   return {
     trigger,
     steps: automation.steps.map((step, index, steps) =>
-      previewStepWithContext(step, index, steps, label),
+      previewStepWithContext(step, index, steps, label)
     ),
   }
 }
 
 function previewStep(
   step: GeneratedAutomationStep,
-  label: (value: unknown) => string,
+  label: (value: unknown) => string
 ): string {
   const config = step.step_config as Record<string, unknown>
   let content: string
@@ -540,8 +557,15 @@ function previewStep(
       content = `update_contact_field: ${field} = ${String(config.value)}`
       break
     }
-    case 'create_deal':
-      return `create_deal: ${label(config.pipeline_id)} / ${label(config.stage_id)} — ${String(config.title)}`
+    case 'create_deal': {
+      const products = Array.isArray(config.items)
+        ? (config.items as { product_id?: unknown }[])
+            .map((item) => label(item.product_id))
+            .filter(Boolean)
+            .join(', ')
+        : ''
+      return `create_deal: ${label(config.pipeline_id)} / ${label(config.stage_id)} — ${String(config.title)}${products ? ` [${products}]` : ''}`
+    }
     case 'move_deal_stage':
       return `move_deal_stage: ${label(config.pipeline_id)} / ${label(config.stage_id)}`
     case 'wait':
@@ -561,7 +585,7 @@ function previewStepWithContext(
   step: GeneratedAutomationStep,
   index: number,
   steps: GeneratedAutomation['steps'],
-  label: (value: unknown) => string,
+  label: (value: unknown) => string
 ): string {
   const content = previewStep(step, label)
 
@@ -581,12 +605,9 @@ function previewStepWithContext(
 
 function conditionOperand(
   config: Record<string, unknown>,
-  label: (value: unknown) => string,
+  label: (value: unknown) => string
 ): string {
-  if (
-    config.subject === 'tag_presence' ||
-    config.subject === 'deal_stage'
-  ) {
+  if (config.subject === 'tag_presence' || config.subject === 'deal_stage') {
     return label(config.operand)
   }
   if (
@@ -600,7 +621,7 @@ function conditionOperand(
 }
 
 function resourceLabels(
-  resources: CopilotAutomationResources,
+  resources: CopilotAutomationResources
 ): Map<string, string> {
   const labels = new Map<string, string>()
   for (const item of [
@@ -608,6 +629,7 @@ function resourceLabels(
     ...resources.members,
     ...resources.customFields,
     ...resources.templates,
+    ...resources.products,
   ]) {
     labels.set(item.id, item.name)
   }
