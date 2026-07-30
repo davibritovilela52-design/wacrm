@@ -512,7 +512,15 @@
       "toastFailedMoveDeal": "딜을 이동하지 못했습니다",
       "toastFailedCreatePipeline": "파이프라인을 만들지 못했습니다",
       "toastPipelineCreated": "파이프라인이 생성되었습니다",
-      "toastNotLinkedToAccount": "프로필이 계정에 연결되어 있지 않습니다."
+      "toastNotLinkedToAccount": "프로필이 계정에 연결되어 있지 않습니다.",
+      "productsUnavailable": "제품 필터를 일시적으로 사용할 수 없습니다. 모든 딜을 표시합니다."
+    },
+    "productFilter": {
+      "all": "모든 제품",
+      "unassigned": "제품 없음",
+      "search": "제품 검색...",
+      "inactive": "비활성",
+      "noResults": "제품을 찾을 수 없습니다"
     },
     "board": {
       "dropDealHere": "여기에 딜을 놓으세요",
@@ -521,7 +529,9 @@
     "card": {
       "noContact": "연락처 없음",
       "won": "성사",
-      "lost": "실패"
+      "lost": "실패",
+      "dealTotal": "딜 합계",
+      "productSubtotal": "제품 소계"
     },
     "form": {
       "editDeal": "딜 수정",
@@ -533,6 +543,25 @@
       "linkToConversation": "대화에 연결",
       "value": "금액",
       "currency": "통화",
+      "products": "제품",
+      "productsHint": "제품을 하나 이상 추가하세요. 딜 합계는 항목에서 자동 계산됩니다.",
+      "addProduct": "제품 추가",
+      "noProducts": "아직 제품 항목이 없습니다.",
+      "product": "제품",
+      "selectProduct": "제품 선택",
+      "inactiveProduct": "비활성",
+      "quantity": "수량",
+      "unitPrice": "단가",
+      "subtotal": "소계",
+      "removeProduct": "제품 제거",
+      "total": "합계",
+      "itemErrors": {
+        "required": "제품을 하나 이상 추가하세요",
+        "product": "모든 항목의 제품을 선택하세요",
+        "duplicate": "같은 제품은 한 번만 추가할 수 있습니다",
+        "quantity": "수량은 0보다 커야 합니다",
+        "unit-price": "단가는 0 이상이어야 합니다"
+      },
       "expectedCloseDate": "예상 마감일",
       "stage": "단계",
       "assignedTo": "담당자",
@@ -971,6 +1000,13 @@
         "valueLabel": "값",
         "placeholderValue": "텍스트 또는 {{ vars.x }} / {{ message.text }}",
         "titleLabel": "제목",
+        "productsLabel": "제품",
+        "productLabel": "제품",
+        "selectProduct": "제품 선택...",
+        "quantityLabel": "수량",
+        "unitPriceLabel": "단가",
+        "removeProduct": "제품 제거",
+        "addProduct": "제품 추가",
         "amountLabel": "수치",
         "unitLabel": "단위",
         "units": {
@@ -1563,7 +1599,7 @@
       "whatsapp": "WhatsApp",
       "templates": "템플릿",
       "fields": "필드 & 태그",
-      "deals": "딜 & 통화",
+      "deals": "딜 & 제품",
       "agent": "AI agent",
       "members": "팀원",
       "api": "API 키",
@@ -1676,8 +1712,8 @@
       "networkError": "서버에 연결할 수 없습니다"
     },
     "deals": {
-      "title": "딜 & 통화",
-      "description": "새 딜과 파이프라인, 대시보드 합계에 사용되는 통화입니다.",
+      "title": "딜 & 제품",
+      "description": "제품 카탈로그와 딜 합계에 사용되는 통화를 관리합니다.",
       "defaultCurrency": "기본 통화",
       "defaultCurrencyDesc": "새 딜은 이 통화를 기본값으로 사용하며, 파이프라인과 대시보드 합계도 이 통화로 표시됩니다. 기존 딜은 저장 당시의 통화를 그대로 유지합니다.",
       "currencyLabel": "통화",
@@ -1685,7 +1721,34 @@
       "save": "저장",
       "saving": "저장 중...",
       "saveFailed": "기본 통화를 저장하지 못했습니다",
-      "saveSuccess": "기본 통화가 업데이트되었습니다"
+      "saveSuccess": "기본 통화가 업데이트되었습니다",
+      "products": {
+        "title": "제품 카탈로그",
+        "description": "제품은 모든 파이프라인에서 재사용하고 딜 항목으로 추가할 수 있습니다.",
+        "add": "제품 추가",
+        "loadFailed": "제품을 불러오지 못했습니다",
+        "empty": "아직 제품이 없습니다",
+        "emptyHint": "첫 제품을 만들어 딜 항목화를 시작하세요.",
+        "inactive": "비활성",
+        "editAria": "{name} 수정",
+        "adminOnly": "계정 관리자만 제품 카탈로그를 관리할 수 있습니다.",
+        "editTitle": "제품 수정",
+        "createTitle": "새 제품",
+        "name": "이름",
+        "code": "코드",
+        "descriptionLabel": "설명",
+        "defaultPrice": "기본 단가",
+        "currency": "통화",
+        "active": "활성",
+        "activeHint": "비활성 제품은 과거 딜에 계속 표시되지만 새 항목에는 추가할 수 없습니다.",
+        "cancel": "취소",
+        "save": "제품 저장",
+        "invalid": "이름, 올바른 가격과 통화를 입력하세요",
+        "notAuthenticated": "로그인되어 있지 않습니다",
+        "saveFailed": "제품을 저장하지 못했습니다",
+        "updated": "제품이 업데이트되었습니다",
+        "created": "제품이 생성되었습니다"
+      }
     },
     "agent": {
       "title": "AI 에이전트",

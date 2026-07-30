@@ -1,9 +1,22 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Pipeline, PipelineStage, Deal } from "@/types";
+import type {
+  Pipeline,
+  PipelineStage,
+  Deal,
+  Product,
+  ProductFilter,
+} from "@/types";
 import { PipelineBoard } from "@/components/pipelines/pipeline-board";
 import { PipelineSettings } from "@/components/pipelines/pipeline-settings";
 import { DealForm } from "@/components/pipelines/deal-form";
@@ -35,6 +48,12 @@ import {
   isExactAction,
   removeActionFromHref,
 } from "@/lib/operational-navigation";
+import { ProductFilterSelect } from "@/components/pipelines/product-filter-select";
+import {
+  parseProductFilter,
+  productFilterParam,
+} from "@/lib/pipelines/product-filter";
+import { filterDealsByProduct } from "@/lib/pipelines/product-view";
 
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
@@ -61,6 +80,7 @@ export default function PipelinesPage() {
 function PipelinesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const initialSearchParams = useRef(searchParams.toString());
   const t = useTranslations("Pipelines.page");
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
@@ -71,6 +91,9 @@ function PipelinesPageInner() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsUnavailable, setProductsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Dialog / sheet state
@@ -109,51 +132,73 @@ function PipelinesPageInner() {
         .order("position");
       return data ?? [];
     },
-    [supabase],
+    [supabase]
   );
+
+  const loadProducts = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("name");
+    if (error) {
+      console.error("Failed to load products:", error.message);
+      return { products: [] as Product[], unavailable: true };
+    }
+    return {
+      products: (data ?? []) as Product[],
+      unavailable: false,
+    };
+  }, [supabase]);
 
   const loadDeals = useCallback(
     async (pipelineId: string) => {
       const { data } = await supabase
         .from("deals")
-        .select("*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*)")
+        .select(
+          "*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*), items:deal_items(*, product:products(*))"
+        )
         .eq("pipeline_id", pipelineId)
         .order("created_at", { ascending: false });
       return (data ?? []) as Deal[];
     },
-    [supabase],
+    [supabase]
   );
 
-  const seedDefaultPipeline = useCallback(async (): Promise<Pipeline | null> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user) return null;
-    // pipelines.account_id is NOT NULL post-017 with no DB default.
-    if (!accountId) return null;
+  const seedDefaultPipeline =
+    useCallback(async (): Promise<Pipeline | null> => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return null;
+      // pipelines.account_id is NOT NULL post-017 with no DB default.
+      if (!accountId) return null;
 
-    const { data: pipeline, error } = await supabase
-      .from("pipelines")
-      .insert({ user_id: user.id, account_id: accountId, name: "Sales Pipeline" })
-      .select()
-      .single();
+      const { data: pipeline, error } = await supabase
+        .from("pipelines")
+        .insert({
+          user_id: user.id,
+          account_id: accountId,
+          name: "Sales Pipeline",
+        })
+        .select()
+        .single();
 
-    if (error || !pipeline) {
-      console.error("Failed to seed pipeline:", error?.message);
-      return null;
-    }
+      if (error || !pipeline) {
+        console.error("Failed to seed pipeline:", error?.message);
+        return null;
+      }
 
-    const stagesPayload = SPEC_DEFAULT_STAGES.map((s) => ({
-      pipeline_id: pipeline.id,
-      name: s.name,
-      color: s.color,
-      position: s.position,
-    }));
-    await supabase.from("pipeline_stages").insert(stagesPayload);
+      const stagesPayload = SPEC_DEFAULT_STAGES.map((s) => ({
+        pipeline_id: pipeline.id,
+        name: s.name,
+        color: s.color,
+        position: s.position,
+      }));
+      await supabase.from("pipeline_stages").insert(stagesPayload);
 
-    return pipeline as Pipeline;
-  }, [supabase, accountId]);
+      return pipeline as Pipeline;
+    }, [supabase, accountId]);
 
   // Initial load + seed-if-empty
   useEffect(() => {
@@ -171,9 +216,18 @@ function PipelinesPageInner() {
       if (cancelled) return;
       setPipelines(list);
       if (list.length > 0) {
-        setSelectedPipelineId((prev) =>
-          prev && list.some((p) => p.id === prev) ? prev : list[0].id,
-        );
+        const params = new URLSearchParams(initialSearchParams.current);
+        const requestedPipelineId = params.get("pipeline");
+        const nextPipelineId =
+          requestedPipelineId &&
+          list.some((pipeline) => pipeline.id === requestedPipelineId)
+            ? requestedPipelineId
+            : list[0].id;
+        setSelectedPipelineId(nextPipelineId);
+        if (requestedPipelineId !== nextPipelineId) {
+          params.set("pipeline", nextPipelineId);
+          router.replace(`/pipelines?${params.toString()}`, { scroll: false });
+        }
       } else {
         setSelectedPipelineId("");
       }
@@ -182,7 +236,23 @@ function PipelinesPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [loadPipelines, seedDefaultPipeline]);
+  }, [loadPipelines, router, seedDefaultPipeline]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // This effect owns the async catalog request lifecycle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProductsLoading(true);
+    void loadProducts().then((result) => {
+      if (cancelled) return;
+      setProducts(result.products);
+      setProductsUnavailable(result.unavailable);
+      setProductsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProducts]);
 
   // Load stages + deals whenever selected pipeline changes.
   // Clearing on no-selection is a legitimate sync with URL/prop
@@ -228,11 +298,65 @@ function PipelinesPageInner() {
     setDeals(await loadDeals(selectedPipelineId));
   }, [loadDeals, selectedPipelineId]);
 
+  const productFilter = useMemo<ProductFilter>(
+    () =>
+      productsLoading
+        ? { kind: "all" }
+        : parseProductFilter(searchParams.get("product"), products),
+    [products, productsLoading, searchParams]
+  );
+  const visibleDeals = useMemo(
+    () => filterDealsByProduct(deals, productFilter),
+    [deals, productFilter]
+  );
+
+  const replaceSearchParams = useCallback(
+    (changes: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [name, value] of Object.entries(changes)) {
+        if (value === null) params.delete(name);
+        else params.set(name, value);
+      }
+      const query = params.toString();
+      router.replace(query ? `/pipelines?${query}` : "/pipelines", {
+        scroll: false,
+      });
+    },
+    [router, searchParams]
+  );
+
+  const handlePipelineSelected = useCallback(
+    (pipelineId: string) => {
+      setSelectedPipelineId(pipelineId);
+      replaceSearchParams({ pipeline: pipelineId });
+    },
+    [replaceSearchParams]
+  );
+
+  const handleProductFilterChanged = useCallback(
+    (filter: ProductFilter) => {
+      replaceSearchParams({ product: productFilterParam(filter) });
+    },
+    [replaceSearchParams]
+  );
+
+  useEffect(() => {
+    if (productsLoading) return;
+    const requestedProduct = searchParams.get("product");
+    if (
+      requestedProduct &&
+      requestedProduct !== "unassigned" &&
+      productFilter.kind === "all"
+    ) {
+      replaceSearchParams({ product: null });
+    }
+  }, [productFilter, productsLoading, replaceSearchParams, searchParams]);
+
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
       // Optimistic update — board already animated; just persist.
       setDeals((prev) =>
-        prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d)),
+        prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d))
       );
       const { error } = await supabase
         .from("deals")
@@ -243,7 +367,7 @@ function PipelinesPageInner() {
         refreshDeals();
       }
     },
-    [supabase, refreshDeals, t],
+    [supabase, refreshDeals, t]
   );
 
   const handleAddDeal = useCallback(
@@ -252,7 +376,7 @@ function PipelinesPageInner() {
       setDefaultStageId(stageId ?? stages[0]?.id ?? "");
       setDealFormOpen(true);
     },
-    [stages],
+    [stages]
   );
 
   const handleEditDeal = useCallback((deal: Deal) => {
@@ -321,7 +445,7 @@ function PipelinesPageInner() {
 
     setNewPipelineName("");
     setNewPipelineOpen(false);
-    setSelectedPipelineId(pipeline.id);
+    handlePipelineSelected(pipeline.id);
     await refreshPipelines();
     setCreating(false);
     toast.success(t("toastPipelineCreated"));
@@ -333,12 +457,15 @@ function PipelinesPageInner() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="h-9 w-28 animate-pulse rounded-lg bg-muted" />
+          <div className="bg-muted h-8 w-48 animate-pulse rounded" />
+          <div className="bg-muted h-9 w-28 animate-pulse rounded-lg" />
         </div>
         <div className="flex gap-3">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-96 w-72 animate-pulse rounded-xl bg-muted/50" />
+            <div
+              key={i}
+              className="bg-muted/50 h-96 w-72 animate-pulse rounded-xl"
+            />
           ))}
         </div>
       </div>
@@ -349,21 +476,19 @@ function PipelinesPageInner() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Pipeline selector dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors data-[popup-open]:bg-muted"
-            >
-              <GitBranch className="h-4 w-4 text-primary" />
+            <DropdownMenuTrigger className="border-border bg-card text-foreground hover:bg-muted data-[popup-open]:bg-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors">
+              <GitBranch className="text-primary h-4 w-4" />
               <span className="font-semibold">
                 {selectedPipeline?.name ?? t("selectPipeline")}
               </span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <ChevronDown className="text-muted-foreground h-4 w-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
-              className="w-64 border-border bg-popover text-popover-foreground"
+              className="border-border bg-popover text-popover-foreground w-64"
             >
               {pipelines.length === 0 && (
                 <DropdownMenuItem disabled className="text-muted-foreground">
@@ -373,7 +498,7 @@ function PipelinesPageInner() {
               {pipelines.map((p) => (
                 <DropdownMenuItem
                   key={p.id}
-                  onClick={() => setSelectedPipelineId(p.id)}
+                  onClick={() => handlePipelineSelected(p.id)}
                   className={
                     p.id === selectedPipelineId
                       ? "text-primary"
@@ -396,19 +521,16 @@ function PipelinesPageInner() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          <ProductFilterSelect
+            deals={deals}
+            disabled={productsLoading || productsUnavailable}
+            filter={productFilter}
+            onChange={handleProductFilterChanged}
+            products={products}
+          />
         </div>
 
         <div className="flex items-center gap-2">
-          <GatedButton
-            variant="outline"
-            canAct={canEditSettings}
-            gateReason="create pipelines"
-            onClick={() => setNewPipelineOpen(true)}
-            className="border-border bg-card text-foreground hover:bg-muted"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            {t("addPipeline")}
-          </GatedButton>
           <GatedButton
             canAct={canCreateDeals}
             gateReason="create deals"
@@ -422,21 +544,30 @@ function PipelinesPageInner() {
         </div>
       </div>
 
+      {productsUnavailable && (
+        <div
+          role="status"
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+        >
+          {t("productsUnavailable")}
+        </div>
+      )}
+
       {/* Board */}
       {pipelines.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20">
-          <GitBranch className="h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-medium text-foreground">
+        <div className="border-border flex flex-col items-center justify-center rounded-xl border border-dashed py-20">
+          <GitBranch className="text-muted-foreground h-12 w-12" />
+          <h3 className="text-foreground mt-4 text-lg font-medium">
             {t("noPipelinesYet")}
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             {t("createToStartTracking")}
           </p>
           <GatedButton
             canAct={canEditSettings}
             gateReason="create pipelines"
             onClick={() => setNewPipelineOpen(true)}
-            className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 mt-4"
           >
             <Plus className="mr-1 h-4 w-4" />
             {t("createPipeline")}
@@ -444,22 +575,29 @@ function PipelinesPageInner() {
         </div>
       ) : (
         <>
-          <PipelineAnalytics stages={stages} deals={deals} />
-          <PipelineBoard
+          <PipelineAnalytics
             stages={stages}
             deals={deals}
+            productFilter={productFilter}
+          />
+          <PipelineBoard
+            stages={stages}
+            deals={visibleDeals}
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}
+            productFilter={productFilter}
           />
         </>
       )}
 
       {/* New Pipeline Dialog */}
       <Dialog open={newPipelineOpen} onOpenChange={setNewPipelineOpen}>
-        <DialogContent className="sm:max-w-sm bg-popover border-border">
+        <DialogContent className="bg-popover border-border sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-popover-foreground">{t("newPipeline")}</DialogTitle>
+            <DialogTitle className="text-popover-foreground">
+              {t("newPipeline")}
+            </DialogTitle>
           </DialogHeader>
           <div className="py-2">
             <Label className="text-muted-foreground">{t("pipelineName")}</Label>
@@ -467,12 +605,12 @@ function PipelinesPageInner() {
               value={newPipelineName}
               onChange={(e) => setNewPipelineName(e.target.value)}
               placeholder={t("pipelineNamePlaceholder")}
-              className="mt-2 bg-muted border-border text-foreground"
+              className="bg-muted border-border text-foreground mt-2"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCreatePipeline();
               }}
             />
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="text-muted-foreground mt-2 text-xs">
               {t("defaultStagesDesc")}
             </p>
           </div>
@@ -519,6 +657,10 @@ function PipelinesPageInner() {
         pipelineId={selectedPipelineId}
         stages={stages}
         defaultStageId={defaultStageId}
+        products={products}
+        initialProductId={
+          productFilter.kind === "product" ? productFilter.productId : undefined
+        }
         onSaved={refreshDeals}
       />
     </div>

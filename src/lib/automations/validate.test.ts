@@ -9,11 +9,9 @@ describe("validateStepsForActivation", () => {
     expect(validateStepsForActivation([])).toEqual([
       { path: "steps", message: "active automations need at least one step" },
     ]);
-    expect(
-      validateStepsForActivation(undefined as unknown as never[]),
-    ).toEqual([
-      { path: "steps", message: "active automations need at least one step" },
-    ]);
+    expect(validateStepsForActivation(undefined as unknown as never[])).toEqual(
+      [{ path: "steps", message: "active automations need at least one step" }]
+    );
   });
 
   it("passes a fully-populated step set", () => {
@@ -81,14 +79,14 @@ describe("validateStepsForActivation", () => {
       },
     ]);
     expect(wrongProtocol.map((i) => i.message)).toContain(
-      "webhook URL must use http or https",
+      "webhook URL must use http or https"
     );
 
     const garbage = validateStepsForActivation([
       { step_type: "send_webhook", step_config: { url: "not a url" } },
     ]);
     expect(garbage.map((i) => i.message)).toContain(
-      "webhook URL is not a valid URL",
+      "webhook URL is not a valid URL"
     );
   });
 
@@ -114,10 +112,97 @@ describe("validateStepsForActivation", () => {
       { step_type: "create_deal", step_config: {} },
     ]);
     expect(issues.map((i) => i.path).sort()).toEqual([
+      "steps[0].items",
       "steps[0].pipeline_id",
       "steps[0].stage_id",
       "steps[0].title",
     ]);
+  });
+
+  it("accepts create_deal with at least one valid product item", () => {
+    const issues = validateStepsForActivation([
+      {
+        step_type: "create_deal",
+        step_config: {
+          pipeline_id: "p1",
+          stage_id: "s1",
+          title: "New opportunity",
+          items: [{ product_id: "product-1", quantity: 2, unit_price: 50 }],
+        },
+      },
+    ]);
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it("rejects duplicate products in create_deal items", () => {
+    const issues = validateStepsForActivation([
+      {
+        step_type: "create_deal",
+        step_config: {
+          pipeline_id: "p1",
+          stage_id: "s1",
+          title: "Duplicate items",
+          items: [
+            { product_id: "product-1", quantity: 1, unit_price: 10 },
+            { product_id: "product-1", quantity: 2, unit_price: 10 },
+          ],
+        },
+      },
+    ]);
+
+    expect(issues).toContainEqual({
+      path: "steps[0].items",
+      message: "products must be unique",
+    });
+  });
+
+  it("allows only explicitly grandfathered productless create_deal paths", () => {
+    const steps = [
+      {
+        step_type: "create_deal",
+        step_config: {
+          pipeline_id: "p1",
+          stage_id: "s1",
+          title: "Legacy opportunity",
+          value: 100,
+        },
+      },
+    ];
+
+    expect(validateStepsForActivation(steps)).toEqual([
+      {
+        path: "steps[0].items",
+        message: "at least one product item is required",
+      },
+    ]);
+    expect(
+      validateStepsForActivation(steps, {
+        allowLegacyProductlessDeal: (_config, path) => path === "steps[0]",
+      })
+    ).toEqual([]);
+
+    expect(
+      validateStepsForActivation(
+        [
+          ...steps,
+          {
+            step_type: "create_deal",
+            step_config: {
+              pipeline_id: "p1",
+              stage_id: "s1",
+              title: "New productless opportunity",
+            },
+          },
+        ],
+        {
+          allowLegacyProductlessDeal: (_config, path) => path === "steps[0]",
+        }
+      )
+    ).toContainEqual({
+      path: "steps[1].items",
+      message: "at least one product item is required",
+    });
   });
 
   it("rejects move_deal_stage without pipeline/stage", () => {
@@ -230,7 +315,7 @@ describe("validateStepsForActivation", () => {
           step_type: "condition",
           step_config: { subject: "message_content", value: "budget" },
         },
-      ]),
+      ])
     ).toEqual([]);
 
     expect(
@@ -239,7 +324,7 @@ describe("validateStepsForActivation", () => {
           step_type: "condition",
           step_config: { subject: "message_content", value: "" },
         },
-      ]),
+      ])
     ).toEqual([
       {
         path: "steps[0].value",
@@ -255,7 +340,7 @@ describe("validateTriggerForActivation", () => {
       validateTriggerForActivation("keyword_match", {
         keywords: ["hello", "hi"],
         match_type: "exact",
-      }),
+      })
     ).toEqual([]);
   });
 
@@ -273,7 +358,7 @@ describe("validateTriggerForActivation", () => {
       match_type: "contains",
     });
     expect(issues.map((i) => i.message)).toContain(
-      "keywords cannot be empty strings",
+      "keywords cannot be empty strings"
     );
   });
 
@@ -287,7 +372,7 @@ describe("validateTriggerForActivation", () => {
 
   it("accepts keyword_match with a missing match_type (defaults to contains)", () => {
     expect(
-      validateTriggerForActivation("keyword_match", { keywords: ["hi"] }),
+      validateTriggerForActivation("keyword_match", { keywords: ["hi"] })
     ).toEqual([]);
   });
 
@@ -296,7 +381,7 @@ describe("validateTriggerForActivation", () => {
       { path: "trigger.schedule", message: "schedule is required" },
     ]);
     expect(
-      validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
+      validateTriggerForActivation("time_based", { schedule: "0 9 * * *" })
     ).toEqual([]);
   });
 
@@ -305,22 +390,27 @@ describe("validateTriggerForActivation", () => {
       { path: "trigger.tag_id", message: "tag is required" },
     ]);
     expect(
-      validateTriggerForActivation("tag_added", { tag_id: "tag-uuid" }),
+      validateTriggerForActivation("tag_added", { tag_id: "tag-uuid" })
     ).toEqual([]);
   });
 
   it("requires reply_ids on interactive_reply triggers", () => {
     expect(validateTriggerForActivation("interactive_reply", {})).toEqual([
-      { path: "trigger.reply_ids", message: "at least one reply id is required" },
+      {
+        path: "trigger.reply_ids",
+        message: "at least one reply id is required",
+      },
     ]);
     expect(
-      validateTriggerForActivation("interactive_reply", { reply_ids: ["yes", "no"] }),
+      validateTriggerForActivation("interactive_reply", {
+        reply_ids: ["yes", "no"],
+      })
     ).toEqual([]);
     const empties = validateTriggerForActivation("interactive_reply", {
       reply_ids: ["yes", "  "],
     });
     expect(empties.map((i) => i.message)).toContain(
-      "reply ids cannot be empty strings",
+      "reply ids cannot be empty strings"
     );
   });
 

@@ -27,7 +27,17 @@ interface StepLike {
   branches?: { yes?: StepLike[]; no?: StepLike[] }
 }
 
-export function validateStepsForActivation(steps: StepLike[]): ValidationIssue[] {
+interface ValidationOptions {
+  allowLegacyProductlessDeal?: (
+    config: Record<string, unknown>,
+    path: string
+  ) => boolean
+}
+
+export function validateStepsForActivation(
+  steps: StepLike[],
+  options: ValidationOptions = {}
+): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   if (!Array.isArray(steps) || steps.length === 0) {
     issues.push({
@@ -36,27 +46,40 @@ export function validateStepsForActivation(steps: StepLike[]): ValidationIssue[]
     })
     return issues
   }
-  walk(steps, '', issues)
+  walk(steps, '', issues, options)
   return issues
 }
 
-function walk(steps: StepLike[], prefix: string, issues: ValidationIssue[]): void {
+function walk(
+  steps: StepLike[],
+  prefix: string,
+  issues: ValidationIssue[],
+  options: ValidationOptions
+): void {
   steps.forEach((s, i) => {
     const path = `${prefix}steps[${i}]`
-    validateOne(s, path, issues)
+    validateOne(s, path, issues, options)
     if (s.step_type === 'condition' && s.branches) {
-      if (s.branches.yes) walk(s.branches.yes, `${path}.yes.`, issues)
-      if (s.branches.no) walk(s.branches.no, `${path}.no.`, issues)
+      if (s.branches.yes) walk(s.branches.yes, `${path}.yes.`, issues, options)
+      if (s.branches.no) walk(s.branches.no, `${path}.no.`, issues, options)
     }
   })
 }
 
-function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): void {
+function validateOne(
+  step: StepLike,
+  path: string,
+  issues: ValidationIssue[],
+  options: ValidationOptions
+): void {
   const c = step.step_config ?? {}
   switch (step.step_type) {
     case 'send_message':
       if (!nonEmpty(c.text)) {
-        issues.push({ path: `${path}.text`, message: 'message text is required' })
+        issues.push({
+          path: `${path}.text`,
+          message: 'message text is required',
+        })
       }
       break
     case 'send_buttons':
@@ -71,7 +94,10 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
     }
     case 'send_template':
       if (!nonEmpty(c.template_name)) {
-        issues.push({ path: `${path}.template_name`, message: 'template name is required' })
+        issues.push({
+          path: `${path}.template_name`,
+          message: 'template name is required',
+        })
       }
       break
     case 'add_tag':
@@ -90,15 +116,24 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       break
     case 'update_contact_field':
       if (!nonEmpty(c.field)) {
-        issues.push({ path: `${path}.field`, message: 'field name is required' })
+        issues.push({
+          path: `${path}.field`,
+          message: 'field name is required',
+        })
       }
       if (c.value === undefined || c.value === null || c.value === '') {
-        issues.push({ path: `${path}.value`, message: 'field value is required' })
+        issues.push({
+          path: `${path}.value`,
+          message: 'field value is required',
+        })
       }
       break
     case 'create_deal':
       if (!nonEmpty(c.pipeline_id)) {
-        issues.push({ path: `${path}.pipeline_id`, message: 'pipeline is required' })
+        issues.push({
+          path: `${path}.pipeline_id`,
+          message: 'pipeline is required',
+        })
       }
       if (!nonEmpty(c.stage_id)) {
         issues.push({ path: `${path}.stage_id`, message: 'stage is required' })
@@ -106,18 +141,77 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       if (!nonEmpty(c.title)) {
         issues.push({ path: `${path}.title`, message: 'title is required' })
       }
+      if (
+        (!Array.isArray(c.items) || c.items.length === 0) &&
+        !options.allowLegacyProductlessDeal?.(c, path)
+      ) {
+        issues.push({
+          path: `${path}.items`,
+          message: 'at least one product item is required',
+        })
+      } else if (Array.isArray(c.items)) {
+        const productIds = c.items
+          .map((rawItem) => (rawItem as Record<string, unknown>).product_id)
+          .filter(nonEmpty)
+        if (new Set(productIds).size !== productIds.length) {
+          issues.push({
+            path: `${path}.items`,
+            message: 'products must be unique',
+          })
+        }
+        c.items.forEach((rawItem, itemIndex) => {
+          const item = rawItem as Record<string, unknown>
+          const itemPath = `${path}.items[${itemIndex}]`
+          if (!nonEmpty(item.product_id)) {
+            issues.push({
+              path: `${itemPath}.product_id`,
+              message: 'product is required',
+            })
+          }
+          if (
+            typeof item.quantity !== 'number' ||
+            !Number.isFinite(item.quantity) ||
+            item.quantity <= 0
+          ) {
+            issues.push({
+              path: `${itemPath}.quantity`,
+              message: 'quantity must be positive',
+            })
+          }
+          if (
+            typeof item.unit_price !== 'number' ||
+            !Number.isFinite(item.unit_price) ||
+            item.unit_price < 0
+          ) {
+            issues.push({
+              path: `${itemPath}.unit_price`,
+              message: 'unit price cannot be negative',
+            })
+          }
+        })
+      }
       break
     case 'move_deal_stage':
       if (!nonEmpty(c.pipeline_id)) {
-        issues.push({ path: `${path}.pipeline_id`, message: 'pipeline is required' })
+        issues.push({
+          path: `${path}.pipeline_id`,
+          message: 'pipeline is required',
+        })
       }
       if (!nonEmpty(c.stage_id)) {
         issues.push({ path: `${path}.stage_id`, message: 'stage is required' })
       }
       break
     case 'wait':
-      if (typeof c.amount !== 'number' || !Number.isFinite(c.amount) || c.amount <= 0) {
-        issues.push({ path: `${path}.amount`, message: 'wait amount must be greater than 0' })
+      if (
+        typeof c.amount !== 'number' ||
+        !Number.isFinite(c.amount) ||
+        c.amount <= 0
+      ) {
+        issues.push({
+          path: `${path}.amount`,
+          message: 'wait amount must be greater than 0',
+        })
       }
       if (!['minutes', 'hours', 'days'].includes(String(c.unit))) {
         issues.push({
@@ -128,7 +222,10 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       break
     case 'condition':
       if (!nonEmpty(c.subject)) {
-        issues.push({ path: `${path}.subject`, message: 'condition subject is required' })
+        issues.push({
+          path: `${path}.subject`,
+          message: 'condition subject is required',
+        })
       }
       if (c.subject === 'message_content') {
         if (!nonEmpty(c.value)) {
@@ -138,12 +235,18 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
           })
         }
       } else if (!nonEmpty(c.operand)) {
-        issues.push({ path: `${path}.operand`, message: 'condition operand is required' })
+        issues.push({
+          path: `${path}.operand`,
+          message: 'condition operand is required',
+        })
       }
       break
     case 'send_webhook':
       if (!nonEmpty(c.url)) {
-        issues.push({ path: `${path}.url`, message: 'webhook URL is required' })
+        issues.push({
+          path: `${path}.url`,
+          message: 'webhook URL is required',
+        })
         break
       }
       try {
@@ -155,7 +258,10 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
           })
         }
       } catch {
-        issues.push({ path: `${path}.url`, message: 'webhook URL is not a valid URL' })
+        issues.push({
+          path: `${path}.url`,
+          message: 'webhook URL is not a valid URL',
+        })
       }
       break
     case 'close_conversation':
@@ -168,7 +274,7 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
 
 export function validateTriggerForActivation(
   triggerType: AutomationTriggerType | string,
-  triggerConfig: unknown,
+  triggerConfig: unknown
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const cfg = (triggerConfig ?? {}) as Record<string, unknown>
@@ -176,9 +282,15 @@ export function validateTriggerForActivation(
   if (triggerType === 'keyword_match') {
     const k = cfg.keywords
     if (!Array.isArray(k) || k.length === 0) {
-      issues.push({ path: 'trigger.keywords', message: 'at least one keyword is required' })
+      issues.push({
+        path: 'trigger.keywords',
+        message: 'at least one keyword is required',
+      })
     } else if (k.some((v) => typeof v !== 'string' || v.trim() === '')) {
-      issues.push({ path: 'trigger.keywords', message: 'keywords cannot be empty strings' })
+      issues.push({
+        path: 'trigger.keywords',
+        message: 'keywords cannot be empty strings',
+      })
     }
     // A missing match_type defaults to "contains" at runtime (see
     // automations/engine.ts and flows/engine.ts, which both read
@@ -186,7 +298,11 @@ export function validateTriggerForActivation(
     // value is invalid here. This keeps activation validation in step
     // with the engine and with the builder's "Contains" default — an
     // automation that shows the default in the UI must not be rejected.
-    if (cfg.match_type != null && cfg.match_type !== 'exact' && cfg.match_type !== 'contains') {
+    if (
+      cfg.match_type != null &&
+      cfg.match_type !== 'exact' &&
+      cfg.match_type !== 'contains'
+    ) {
       issues.push({
         path: 'trigger.match_type',
         message: 'match type must be "exact" or "contains"',
@@ -194,7 +310,10 @@ export function validateTriggerForActivation(
     }
   } else if (triggerType === 'time_based') {
     if (!nonEmpty(cfg.schedule)) {
-      issues.push({ path: 'trigger.schedule', message: 'schedule is required' })
+      issues.push({
+        path: 'trigger.schedule',
+        message: 'schedule is required',
+      })
     }
   } else if (triggerType === 'tag_added') {
     if (!nonEmpty(cfg.tag_id)) {

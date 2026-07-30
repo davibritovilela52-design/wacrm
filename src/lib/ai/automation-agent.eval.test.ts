@@ -31,6 +31,7 @@ const baseResources: CopilotAutomationResources = {
     { id: '00000000-0000-4000-8000-000000000001', name: 'VIP' },
     { id: '00000000-0000-4000-8000-000000000002', name: 'Cliente ativo' },
   ],
+  products: [],
   members: [
     { id: '00000000-0000-4000-8000-000000000003', name: 'Maria Silva' },
   ],

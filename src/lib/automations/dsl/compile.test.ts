@@ -46,6 +46,14 @@ const resources: AutomationCompilationResources = {
       stages: [{ id: 'stage-support-closed', name: 'Encerrado' }],
     },
   ],
+  products: [
+    {
+      id: 'product-crm',
+      name: 'Decizyon CRM',
+      defaultUnitPrice: 125,
+      currency: 'BRL',
+    },
+  ],
   templates: [
     { id: 'template-budget-pt', name: 'Orçamento', language: 'pt_BR' },
     { id: 'template-budget-en', name: 'Orçamento', language: 'en_US' },
@@ -414,7 +422,13 @@ describe('compileAutomationIntent values, branches, and safety', () => {
           pipeline: 'Vendas',
           stage: 'Fechado',
           title: 'New deal',
-          value: null,
+          items: [
+            {
+              product: 'Decizyon CRM',
+              quantity: 2,
+              unit_price: 125,
+            },
+          ],
         },
         ...root,
       },
@@ -457,6 +471,13 @@ describe('compileAutomationIntent values, branches, and safety', () => {
     expect(result.automation.steps.map((step) => step.step_type)).toEqual(
       AUTOMATION_STEP_TYPES
     );
+    expect(
+      result.automation.steps.find((step) => step.step_type === 'create_deal')
+    ).toMatchObject({
+      step_config: {
+        items: [{ product_id: 'product-crm', quantity: 2, unit_price: 125 }],
+      },
+    });
   });
 
   it('compiles custom fields to custom:<id>, preserves TEXT, and validates static values', () => {

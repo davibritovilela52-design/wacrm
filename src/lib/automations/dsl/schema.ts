@@ -200,6 +200,16 @@ export const createDealStepConfigSchema = z.strictObject({
   stage_id: trimmedNonEmptyString,
   title: nonEmptyString,
   value: z.number().finite().optional(),
+  items: z
+    .array(
+      z.strictObject({
+        product_id: trimmedNonEmptyString,
+        quantity: z.number().finite().positive(),
+        unit_price: z.number().finite().nonnegative(),
+      })
+    )
+    .min(1)
+    .optional(),
 });
 
 export const moveDealStageStepConfigSchema = z.strictObject({

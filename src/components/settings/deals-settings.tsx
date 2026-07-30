@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { useTranslations } from "next-intl";
 import { SettingsPanelHead } from "./settings-panel-head";
+import { ProductManager } from "./product-manager";
 
 /**
  * Deals settings — account-wide default currency.
@@ -70,15 +71,12 @@ export function DealsSettings() {
   }
 
   return (
-    <section className="max-w-2xl animate-in fade-in-50 duration-200">
-      <SettingsPanelHead
-        title={t("title")}
-        description={t("description")}
-      />
+    <section className="animate-in fade-in-50 max-w-2xl space-y-6 duration-200">
+      <SettingsPanelHead title={t("title")} description={t("description")} />
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-foreground">
-            <Coins className="size-4 text-primary" />
+          <CardTitle className="text-foreground flex items-center gap-2">
+            <Coins className="text-primary size-4" />
             {t("defaultCurrency")}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -87,12 +85,14 @@ export function DealsSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 sm:max-w-xs">
-            <Label className="text-muted-foreground">{t("currencyLabel")}</Label>
+            <Label className="text-muted-foreground">
+              {t("currencyLabel")}
+            </Label>
             <select
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
               disabled={!canEditSettings || profileLoading}
-              className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+              className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus:ring-1 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {CURRENCIES.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -101,7 +101,7 @@ export function DealsSettings() {
               ))}
             </select>
             {!canEditSettings && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {t("adminOnlyHint")}
               </p>
             )}
@@ -125,6 +125,7 @@ export function DealsSettings() {
           )}
         </CardContent>
       </Card>
+      <ProductManager />
     </section>
   );
 }

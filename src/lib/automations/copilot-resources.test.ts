@@ -57,8 +57,10 @@ function fakeSupabase(args?: {
           return Promise.resolve(execute())
         },
         then<TResult1 = unknown, TResult2 = never>(
-          onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
-          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+          onfulfilled?:
+            ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?:
+            ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
         ) {
           return Promise.resolve(execute()).then(onfulfilled, onrejected)
         },
@@ -99,9 +101,37 @@ describe('loadCopilotAutomationResources', () => {
           { id: 'pipeline-1', name: 'Vendas', account_id: 'acct-1' },
           { id: 'pipeline-other', name: 'Other', account_id: 'acct-2' },
         ],
+        products: [
+          {
+            id: 'product-1',
+            name: 'Decizyon CRM',
+            default_unit_price: 250,
+            currency: 'BRL',
+            is_active: true,
+            account_id: 'acct-1',
+          },
+          {
+            id: 'product-inactive',
+            name: 'Legacy',
+            default_unit_price: 10,
+            currency: 'BRL',
+            is_active: false,
+            account_id: 'acct-1',
+          },
+        ],
         pipeline_stages: [
-          { id: 'stage-1', name: 'Fechado', pipeline_id: 'pipeline-1', position: 1 },
-          { id: 'stage-other', name: 'Other', pipeline_id: 'pipeline-other', position: 1 },
+          {
+            id: 'stage-1',
+            name: 'Fechado',
+            pipeline_id: 'pipeline-1',
+            position: 1,
+          },
+          {
+            id: 'stage-other',
+            name: 'Other',
+            pipeline_id: 'pipeline-other',
+            position: 1,
+          },
         ],
         message_templates: [
           {
@@ -136,9 +166,7 @@ describe('loadCopilotAutomationResources', () => {
             kind: 'interactive',
             interactive_payload: {
               kind: 'list',
-              sections: [
-                { rows: [{ id: 'details', title: 'Ver detalhes' }] },
-              ],
+              sections: [{ rows: [{ id: 'details', title: 'Ver detalhes' }] }],
             },
           },
         ],
@@ -165,6 +193,14 @@ describe('loadCopilotAutomationResources', () => {
           stages: [{ id: 'stage-1', name: 'Fechado' }],
         },
       ],
+      products: [
+        {
+          id: 'product-1',
+          name: 'Decizyon CRM',
+          defaultUnitPrice: 250,
+          currency: 'BRL',
+        },
+      ],
       templates: [{ id: 'template-1', name: 'orcamento', language: 'pt_BR' }],
       interactiveReplies: [
         { id: 'accept', label: 'Aceitar' },
@@ -175,9 +211,16 @@ describe('loadCopilotAutomationResources', () => {
     const membersCall = calls.find((call) => call.table === 'profiles')
     expect(membersCall?.select).toBe('user_id, full_name')
     expect(membersCall?.select).not.toContain('email')
-    expect(calls.every((call) => call.table === 'pipeline_stages'
-      || call.filters.some((filter) => filter.column === 'account_id' && filter.value === 'acct-1')))
-      .toBe(true)
+    expect(
+      calls.every(
+        (call) =>
+          call.table === 'pipeline_stages' ||
+          call.filters.some(
+            (filter) =>
+              filter.column === 'account_id' && filter.value === 'acct-1'
+          )
+      )
+    ).toBe(true)
   })
 
   it('does not query pipeline_stages when no account pipeline exists', async () => {
@@ -193,8 +236,8 @@ describe('loadCopilotAutomationResources', () => {
       errors: { custom_fields: 'schema cache unavailable' },
     })
 
-    await expect(loadCopilotAutomationResources(supabase, 'acct-1')).rejects.toThrow(
-      'Failed to load custom_fields: schema cache unavailable',
-    )
+    await expect(
+      loadCopilotAutomationResources(supabase, 'acct-1')
+    ).rejects.toThrow('Failed to load custom_fields: schema cache unavailable')
   })
 })

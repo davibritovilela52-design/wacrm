@@ -11,6 +11,7 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate'
+import { createLegacyProductlessDealGuard } from '@/lib/automations/legacy-productless'
 
 async function requireUser() {
   const supabase = await createClient()
@@ -22,11 +23,12 @@ async function requireUser() {
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = supabaseAdmin()
   const { data: automation, error } = await admin
@@ -37,7 +39,8 @@ export async function GET(
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!automation) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!automation)
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const steps = await loadStepsTree(id)
   return NextResponse.json({ automation, steps })
@@ -45,7 +48,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
 
@@ -59,10 +62,12 @@ export async function PATCH(
   }
 
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  if (!body)
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
   const admin = supabaseAdmin()
 
@@ -93,16 +98,28 @@ export async function PATCH(
   // merged configuration first. Activation is the natural gate — drafts
   // are still allowed to be incomplete.
   const willBeActive =
-    typeof update.is_active === 'boolean' ? update.is_active : existing.is_active
+    typeof update.is_active === 'boolean'
+      ? update.is_active
+      : existing.is_active
   if (willBeActive) {
-    const mergedTriggerType = (update.trigger_type ?? existing.trigger_type) as string
+    const mergedTriggerType = (update.trigger_type ??
+      existing.trigger_type) as string
     const mergedTriggerConfig = update.trigger_config ?? existing.trigger_config
+    const existingSteps = await loadStepsTree(id)
     const mergedSteps = Array.isArray(body.steps)
-      ? (body.steps as { step_type: string; step_config: Record<string, unknown> }[])
-      : await loadStepsTree(id)
+      ? (body.steps as BuilderStepInput[])
+      : existingSteps
+    const allowLegacyProductlessDeal = existing.is_active
+      ? createLegacyProductlessDealGuard(existingSteps)
+      : () => false
     const issues = [
       ...validateTriggerForActivation(mergedTriggerType, mergedTriggerConfig),
-      ...validateStepsForActivation(mergedSteps),
+      ...validateStepsForActivation(mergedSteps, {
+        // Only an unchanged productless step at the same tree path is
+        // grandfathered while the automation remains continuously active.
+        // New or edited create_deal steps must use product items.
+        allowLegacyProductlessDeal,
+      }),
     ]
     if (issues.length > 0) {
       return NextResponse.json(
@@ -110,7 +127,7 @@ export async function PATCH(
           error: 'Cannot keep automation active with invalid configuration',
           issues,
         },
-        { status: 400 },
+        { status: 400 }
       )
     }
   }
@@ -120,7 +137,8 @@ export async function PATCH(
       .from('automations')
       .update(update)
       .eq('id', id)
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
+    if (updErr)
+      return NextResponse.json({ error: updErr.message }, { status: 500 })
   }
 
   if (Array.isArray(body.steps)) {
@@ -133,7 +151,7 @@ export async function PATCH(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
 
@@ -146,7 +164,8 @@ export async function DELETE(
   }
 
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { error } = await supabaseAdmin()
     .from('automations')

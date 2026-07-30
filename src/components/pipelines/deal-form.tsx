@@ -11,6 +11,7 @@ import type {
   Deal,
   DealStatus,
   PipelineStage,
+  Product,
   Profile,
 } from "@/types";
 import {
@@ -23,16 +24,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Check,
-  X,
-  Trash2,
-  MessageSquare,
-  DollarSign,
-  Loader2,
-} from "lucide-react";
+import { Check, X, Trash2, MessageSquare, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import {
+  createDealItemDraft,
+  repriceAutoFilledItems,
+  toDealItemInputs,
+  validateDealItemDrafts,
+  type DealItemDraft,
+} from "@/lib/pipelines/deal-items";
 
 interface DealFormProps {
   open: boolean;
@@ -41,6 +42,8 @@ interface DealFormProps {
   pipelineId: string;
   stages: PipelineStage[];
   defaultStageId?: string;
+  products: Product[];
+  initialProductId?: string;
   onSaved: () => void;
 }
 
@@ -51,6 +54,8 @@ export function DealForm({
   pipelineId,
   stages,
   defaultStageId,
+  products,
+  initialProductId,
   onSaved,
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
@@ -58,8 +63,8 @@ export function DealForm({
   const { accountId, defaultCurrency } = useAuth();
 
   const [title, setTitle] = useState("");
-  const [value, setValue] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
+  const [itemDrafts, setItemDrafts] = useState<DealItemDraft[]>([]);
   const [contactId, setContactId] = useState("");
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
@@ -85,8 +90,18 @@ export function DealForm({
     setConfirmDelete(false);
     if (deal) {
       setTitle(deal.title);
-      setValue(String(deal.value ?? ""));
       setCurrency(deal.currency || defaultCurrency);
+      setItemDrafts(
+        [...(deal.items ?? [])]
+          .sort((a, b) => a.position - b.position)
+          .map((item) => ({
+            key: item.id,
+            product_id: item.product_id,
+            quantity: String(item.quantity),
+            unit_price: String(item.unit_price),
+            autoPriced: false,
+          }))
+      );
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
@@ -96,15 +111,36 @@ export function DealForm({
       setNotes(deal.notes ?? "");
     } else {
       setTitle("");
-      setValue("");
       setCurrency(defaultCurrency);
+      const initialProduct = products.find(
+        (product) => product.id === initialProductId && product.is_active
+      );
+      setItemDrafts(
+        initialProduct
+          ? [
+              createDealItemDraft(
+                initialProduct,
+                defaultCurrency,
+                `new-${initialProduct.id}`
+              ),
+            ]
+          : []
+      );
       setContactId("");
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
       setNotes("");
     }
-  }, [open, deal, defaultStageId, stages, defaultCurrency]);
+  }, [
+    open,
+    deal,
+    defaultStageId,
+    stages,
+    defaultCurrency,
+    initialProductId,
+    products,
+  ]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Load supporting data once the sheet is open
@@ -156,11 +192,20 @@ export function DealForm({
       toast.error(t("toastRequired"));
       return;
     }
+    const itemError = validateDealItemDrafts(itemDrafts);
+    if (itemError) {
+      toast.error(t(`itemErrors.${itemError}`));
+      return;
+    }
+    if (!accountId) {
+      toast.error(t("toastNotLinked"));
+      return;
+    }
     setSaving(true);
 
     const payload = {
+      deal_id: deal?.id ?? null,
       title: title.trim(),
-      value: parseFloat(value) || 0,
       currency,
       contact_id: contactId,
       pipeline_id: pipelineId,
@@ -168,41 +213,16 @@ export function DealForm({
       assigned_to: assignedTo || null,
       notes: notes.trim() || null,
       expected_close_date: expectedCloseDate || null,
+      items: toDealItemInputs(itemDrafts),
     };
 
-    if (deal) {
-      const { error } = await supabase
-        .from("deals")
-        .update(payload)
-        .eq("id", deal.id);
-      if (error) {
-        toast.error(t("toastFailedSave"));
-        setSaving(false);
-        return;
-      }
-    } else {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) {
-        toast.error(t("toastNotSignedIn"));
-        setSaving(false);
-        return;
-      }
-      if (!accountId) {
-        toast.error(t("toastNotLinked"));
-        setSaving(false);
-        return;
-      }
-      const { error } = await supabase
-        .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" });
-      if (error) {
-        toast.error(t("toastFailedCreate"));
-        setSaving(false);
-        return;
-      }
+    const { error } = await supabase.rpc("save_deal_with_items", {
+      p_payload: payload,
+    });
+    if (error) {
+      toast.error(deal ? t("toastFailedSave") : t("toastFailedCreate"));
+      setSaving(false);
+      return;
     }
 
     setSaving(false);
@@ -224,7 +244,11 @@ export function DealForm({
       return;
     }
     toast.success(
-      status === "won" ? t("toastMarkedWon") : status === "lost" ? t("toastMarkedLost") : t("toastReopened"),
+      status === "won"
+        ? t("toastMarkedWon")
+        : status === "lost"
+          ? t("toastMarkedLost")
+          : t("toastReopened")
     );
     onOpenChange(false);
     onSaved();
@@ -245,20 +269,88 @@ export function DealForm({
     onSaved();
   }
 
+  const originalProductIds = new Set(
+    (deal?.items ?? []).map((item) => item.product_id)
+  );
+  const selectableProducts = products.filter(
+    (product) => product.is_active || originalProductIds.has(product.id)
+  );
+  const totalValue = itemDrafts.reduce((sum, item) => {
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(item.unit_price);
+    if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return sum;
+    return sum + quantity * unitPrice;
+  }, 0);
+  const itemValidation = validateDealItemDrafts(itemDrafts);
+
+  function addItem() {
+    setItemDrafts((current) => [
+      ...current,
+      {
+        key: crypto.randomUUID(),
+        product_id: "",
+        quantity: "1",
+        unit_price: "",
+      },
+    ]);
+  }
+
+  function updateItemProduct(key: string, productId: string) {
+    setItemDrafts((current) =>
+      current.map((item) => {
+        if (item.key !== key) return item;
+        const product = products.find(
+          (candidate) => candidate.id === productId
+        );
+        if (!product) return { ...item, product_id: productId, unit_price: "" };
+        return createDealItemDraft(product, currency, item.key);
+      })
+    );
+  }
+
+  function updateItem(
+    key: string,
+    field: "quantity" | "unit_price",
+    value: string
+  ) {
+    setItemDrafts((current) =>
+      current.map((item) =>
+        item.key === key
+          ? {
+              ...item,
+              [field]: value,
+              ...(field === "unit_price" ? { autoPriced: false } : {}),
+            }
+          : item
+      )
+    );
+  }
+
+  function updateCurrency(nextCurrency: string) {
+    setCurrency(nextCurrency);
+    setItemDrafts((current) =>
+      repriceAutoFilledItems(current, products, nextCurrency)
+    );
+  }
+
+  function removeItem(key: string) {
+    setItemDrafts((current) => current.filter((item) => item.key !== key));
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="bg-popover border-border text-popover-foreground sm:max-w-lg w-full p-0"
+        className="bg-popover border-border text-popover-foreground w-full p-0 sm:max-w-2xl"
       >
         <div className="flex h-full flex-col">
-          <SheetHeader className="border-b border-border/50 p-4">
+          <SheetHeader className="border-border/50 border-b p-4">
             <SheetTitle className="text-popover-foreground">
               {deal ? t("editDeal") : t("newDeal")}
             </SheetTitle>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
             <div className="grid gap-2">
               <Label className="text-muted-foreground">{t("title")}</Label>
               <Input
@@ -274,7 +366,7 @@ export function DealForm({
               <select
                 value={contactId}
                 onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
               >
                 <option value="">{t("selectContact")}</option>
                 {contacts.map((c) => (
@@ -287,7 +379,7 @@ export function DealForm({
               {linkedConversation && (
                 <Link
                   href="/inbox"
-                  className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
+                  className="bg-primary/10 text-primary hover:bg-primary/20 mt-1 inline-flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs"
                 >
                   <MessageSquare className="h-3 w-3" />
                   {t("linkToConversation")}
@@ -295,38 +387,166 @@ export function DealForm({
               )}
             </div>
 
-            <div className="grid grid-cols-[1fr_110px] gap-3">
-              <div className="grid gap-2">
-                <Label className="text-muted-foreground">{t("value")}</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    type="number"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    placeholder="0"
-                    className="border-border bg-muted pl-7 text-foreground"
-                  />
+            <div className="grid max-w-40 gap-2">
+              <Label className="text-muted-foreground">{t("currency")}</Label>
+              <select
+                value={currency}
+                onChange={(e) => updateCurrency(e.target.value)}
+                className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="border-border bg-muted/30 space-y-3 rounded-lg border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label className="text-foreground">{t("products")}</Label>
+                  <p className="text-muted-foreground mt-0.5 text-xs">
+                    {t("productsHint")}
+                  </p>
                 </div>
-              </div>
-              <div className="grid gap-2">
-                <Label className="text-muted-foreground">{t("currency")}</Label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addItem}
+                  disabled={itemDrafts.length >= selectableProducts.length}
                 >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </select>
+                  <Plus className="size-4" />
+                  {t("addProduct")}
+                </Button>
+              </div>
+
+              {itemDrafts.length === 0 ? (
+                <div className="border-border text-muted-foreground rounded-md border border-dashed px-3 py-6 text-center text-sm">
+                  {t("noProducts")}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {itemDrafts.map((item) => {
+                    const selectedProductIds = new Set(
+                      itemDrafts
+                        .filter((candidate) => candidate.key !== item.key)
+                        .map((candidate) => candidate.product_id)
+                    );
+                    const subtotal =
+                      Number(item.quantity || 0) * Number(item.unit_price || 0);
+                    return (
+                      <div
+                        key={item.key}
+                        className="border-border bg-card grid gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_88px_112px_104px_36px]"
+                      >
+                        <div className="grid gap-1">
+                          <Label className="text-muted-foreground text-[11px]">
+                            {t("product")}
+                          </Label>
+                          <select
+                            value={item.product_id}
+                            onChange={(event) =>
+                              updateItemProduct(item.key, event.target.value)
+                            }
+                            className="border-border bg-muted text-foreground focus:border-primary h-9 min-w-0 rounded-lg border px-2 text-sm outline-none"
+                          >
+                            <option value="">{t("selectProduct")}</option>
+                            {selectableProducts.map((product) => (
+                              <option
+                                key={product.id}
+                                value={product.id}
+                                disabled={selectedProductIds.has(product.id)}
+                              >
+                                {product.name}
+                                {!product.is_active
+                                  ? ` (${t("inactiveProduct")})`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="grid gap-1">
+                          <Label className="text-muted-foreground text-[11px]">
+                            {t("quantity")}
+                          </Label>
+                          <Input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            value={item.quantity}
+                            onChange={(event) =>
+                              updateItem(
+                                item.key,
+                                "quantity",
+                                event.target.value
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label className="text-muted-foreground text-[11px]">
+                            {t("unitPrice")}
+                          </Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.unit_price}
+                            onChange={(event) =>
+                              updateItem(
+                                item.key,
+                                "unit_price",
+                                event.target.value
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label className="text-muted-foreground text-[11px]">
+                            {t("subtotal")}
+                          </Label>
+                          <div className="bg-muted text-foreground flex h-9 items-center truncate rounded-lg px-2 text-sm font-medium">
+                            {new Intl.NumberFormat(undefined, {
+                              style: "currency",
+                              currency,
+                            }).format(Number.isFinite(subtotal) ? subtotal : 0)}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeItem(item.key)}
+                          aria-label={t("removeProduct")}
+                          className="text-destructive hover:text-destructive self-end"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="border-border flex items-center justify-between border-t pt-3">
+                <span className="text-muted-foreground text-sm font-medium">
+                  {t("total")}
+                </span>
+                <span className="text-foreground text-lg font-semibold">
+                  {new Intl.NumberFormat(undefined, {
+                    style: "currency",
+                    currency,
+                  }).format(totalValue)}
+                </span>
               </div>
             </div>
 
             <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("expectedCloseDate")}</Label>
+              <Label className="text-muted-foreground">
+                {t("expectedCloseDate")}
+              </Label>
               <Input
                 type="date"
                 value={expectedCloseDate}
@@ -340,7 +560,7 @@ export function DealForm({
               <select
                 value={stageId}
                 onChange={(e) => setStageId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
               >
                 {stages.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -355,7 +575,7 @@ export function DealForm({
               <select
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
               >
                 <option value="">{t("unassigned")}</option>
                 {profiles.map((p) => (
@@ -372,13 +592,13 @@ export function DealForm({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={t("notesPlaceholder")}
-                className="min-h-[100px] border-border bg-muted text-foreground"
+                className="border-border bg-muted text-foreground min-h-[100px]"
               />
             </div>
 
             {deal && (
-              <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="border-border bg-muted/50 space-y-2 rounded-lg border p-3">
+                <p className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
                   {t("status")}
                 </p>
                 <div className="flex gap-2">
@@ -386,7 +606,7 @@ export function DealForm({
                     type="button"
                     onClick={() => handleStatusChange("won")}
                     disabled={!!statusAction || deal.status === "won"}
-                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 flex-1 disabled:opacity-50"
                   >
                     {statusAction === "won" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -419,7 +639,7 @@ export function DealForm({
                     variant="ghost"
                     onClick={() => handleStatusChange("open")}
                     disabled={!!statusAction}
-                    className="w-full text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground w-full"
                   >
                     {t("reopenDeal")}
                   </Button>
@@ -428,21 +648,31 @@ export function DealForm({
             )}
           </div>
 
-          <div className="border-t border-border/50 bg-popover/80 p-4">
+          <div className="border-border/50 bg-popover/80 border-t p-4">
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                className="flex-1 border-border bg-transparent text-muted-foreground hover:bg-muted"
+                className="border-border text-muted-foreground hover:bg-muted flex-1 bg-transparent"
               >
                 {t("cancel")}
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !title.trim() || !contactId || !stageId}
-                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                disabled={
+                  saving ||
+                  !title.trim() ||
+                  !contactId ||
+                  !stageId ||
+                  itemValidation !== null
+                }
+                className="bg-primary text-primary-foreground hover:bg-primary/90 flex-1"
               >
-                {saving ? t("saving") : deal ? t("saveChanges") : t("createDeal")}
+                {saving
+                  ? t("saving")
+                  : deal
+                    ? t("saveChanges")
+                    : t("createDeal")}
               </Button>
             </div>
 
@@ -455,7 +685,7 @@ export function DealForm({
                       type="button"
                       onClick={() => setConfirmDelete(false)}
                       disabled={deleting}
-                      className="rounded px-2 py-1 text-muted-foreground hover:bg-muted"
+                      className="text-muted-foreground hover:bg-muted rounded px-2 py-1"
                     >
                       {t("cancel")}
                     </button>
